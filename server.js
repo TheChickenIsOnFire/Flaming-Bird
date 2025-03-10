@@ -7,14 +7,14 @@ import { fileURLToPath } from 'url';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Needed for ES modules to determine __dirname.
+// Determine __dirname for ES Modules.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Helper: Validate URL starts with http or https.
+// Helper: Validate that a URL starts with "http://" or "https://"
 const isValidUrl = (url) => /^https?:\/\//i.test(url);
 
-// Helper: Convert a relative URL to an absolute URL using the base.
+// Helper: Convert a relative URL to an absolute URL based on a base.
 function makeAbsolute(url, base) {
   try {
     return new URL(url, base).toString();
@@ -23,10 +23,11 @@ function makeAbsolute(url, base) {
   }
 }
 
-// Rewrite attribute by prepending the asset proxy endpoint.
+// Rewrite an asset URL to our generic resource endpoint.
+// Note: The endpoint is /res so that the query string does not include "asset"
 function rewriteAssetUrl(originalUrl, baseUrl) {
   const absoluteUrl = makeAbsolute(originalUrl, baseUrl);
-  return '/asset?url=' + encodeURIComponent(absoluteUrl);
+  return '/res?url=' + encodeURIComponent(absoluteUrl);
 }
 
 // Serve static files from the "public" directory.
@@ -36,13 +37,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/fetch', async (req, res) => {
   const targetUrl = req.query.target;
   if (!targetUrl || !isValidUrl(targetUrl)) {
-    return res.status(400).send(
-      'Please provide a valid target URL that starts with "http://" or "https://".'
-    );
+    return res
+      .status(400)
+      .send('Please provide a valid target URL that starts with "http://" or "https://".');
   }
   
   try {
-    // Use a browser-like User-Agent header.
+    // Use a browser-like User-Agent so that target servers return full content.
     const response = await fetch(targetUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FlamingBird/1.0)' }
     });
@@ -55,21 +56,21 @@ app.get('/fetch', async (req, res) => {
     }
     
     let html = await response.text();
-    // Load HTML into Cheerio. `decodeEntities: false` helps preserve the original encoding.
+    // Load HTML into Cheerio (preserving original encoding with decodeEntities: false).
     const $ = cheerio.load(html, { decodeEntities: false });
     
-    // Remove meta tags that enforce framing or content restrictions.
+    // Remove meta tags that enforce framing/restrictions.
     $('meta[http-equiv="X-Frame-Options"]').remove();
     $('meta[http-equiv="Content-Security-Policy"]').remove();
     
-    // Insert or update a <base> tag so that relative URLs resolve correctly.
+    // Insert or update a <base> element so that relative URLs resolve against the target.
     if ($('base').length === 0) {
       $('head').prepend(`<base href="${targetUrl}">`);
     } else {
       $('base').attr('href', targetUrl);
     }
     
-    // Rewrite URLs for all elements that load external resources:
+    // Rewrite asset URLs for all elements that reference external resources:
     // 1. Elements with a "src" attribute.
     $('[src]').each((i, el) => {
       const origUrl = $(el).attr('src');
@@ -78,20 +79,19 @@ app.get('/fetch', async (req, res) => {
       }
     });
     
-    // 2. Elements with a "srcset" attribute (e.g. responsive images)
+    // 2. Elements with a "srcset" attribute (for responsive images or video sources)
     $('[srcset]').each((i, el) => {
       const srcset = $(el).attr('srcset');
       if (srcset) {
-        // Process each candidate in the srcset attribute.
         const rewrittenSrcset = srcset.split(',')
           .map(item => {
-            // Each item can be "url [descriptor]"
             const parts = item.trim().split(/\s+/);
             if (parts.length) {
               parts[0] = rewriteAssetUrl(parts[0], targetUrl);
             }
             return parts.join(' ');
-          }).join(', ');
+          })
+          .join(', ');
         $(el).attr('srcset', rewrittenSrcset);
       }
     });
@@ -103,29 +103,28 @@ app.get('/fetch', async (req, res) => {
       if (!origUrl || origUrl.trim().length === 0) return;
       const absolute = makeAbsolute(origUrl, targetUrl);
       if (tagName === 'a') {
-        // For anchor tags, if the link is within the same host, rewrite to the /fetch endpoint.
         try {
           const absUrlObj = new URL(absolute);
           const targetUrlObj = new URL(targetUrl);
           if (absUrlObj.host === targetUrlObj.host) {
+            // For same-domain navigation links, route via /fetch.
             $(el).attr('href', '/fetch?target=' + encodeURIComponent(absolute));
           }
         } catch (e) {
-          // On error, leave the href unchanged.
+          // Error in URL parsing; leave link unchanged.
         }
       } else {
-        // For other tags (like <link> for stylesheets) route via the asset proxy.
+        // For non-anchor tags (e.g., <link> for CSS), rewrite to our resource endpoint.
         $(el).attr('href', rewriteAssetUrl(origUrl, targetUrl));
       }
     });
     
-    // 4. Handle <source> elements (inside video, audio, picture)
+    // 4. Handle <source> elements (e.g. within <video> or <picture>) so their URLs are rewritten.
     $('source').each((i, el) => {
       const origUrl = $(el).attr('src');
       if (origUrl && origUrl.trim().length > 0) {
         $(el).attr('src', rewriteAssetUrl(origUrl, targetUrl));
       }
-      // Also check "srcset" on <source> if present.
       const srcset = $(el).attr('srcset');
       if (srcset) {
         const rewrittenSrcset = srcset.split(',')
@@ -135,12 +134,13 @@ app.get('/fetch', async (req, res) => {
               parts[0] = rewriteAssetUrl(parts[0], targetUrl);
             }
             return parts.join(' ');
-          }).join(', ');
+          })
+          .join(', ');
         $(el).attr('srcset', rewrittenSrcset);
       }
     });
     
-    // Optionally inject a "Back to Proxy" link at the top.
+    // Inject a "Back to Proxy" link at the top for easy navigation back.
     $('body').prepend('<div style="padding:10px; background:#eee;"><a href="/" style="font-size:16px; text-decoration:none;">← Back to Proxy</a></div>');
     
     res.send($.html());
@@ -150,32 +150,37 @@ app.get('/fetch', async (req, res) => {
   }
 });
 
-// Endpoint to fetch assets (CSS, JS, images, videos, etc.)
-app.get('/asset', async (req, res) => {
-  const assetUrl = req.query.url;
-  if (!assetUrl || !isValidUrl(assetUrl)) {
-    return res.status(400).send('Please provide a valid asset URL.');
+// Endpoint to fetch assets (CSS, JS, images, videos, fonts, etc.) via our proxy.
+// Using "/res" instead of "/asset" to avoid triggering client-side filters.
+app.get('/res', async (req, res) => {
+  const resourceUrl = req.query.url;
+  if (!resourceUrl || !isValidUrl(resourceUrl)) {
+    return res.status(400).send('Please provide a valid resource URL.');
   }
   try {
-    const fetchRes = await fetch(assetUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FlamingBird/1.0)' }
+    // Forward a Referer header matching the resource URL to simulate direct access.
+    const fetchRes = await fetch(resourceUrl, {
+      headers: { 
+        'User-Agent': 'Mozilla/5.0 (compatible; FlamingBird/1.0)',
+        'Referer': resourceUrl
+      }
     });
     if (!fetchRes.ok) {
-      console.error(`Asset fetch error: ${fetchRes.status} ${fetchRes.statusText}`);
+      console.error(`Resource fetch error: ${fetchRes.status} ${fetchRes.statusText}`);
       return res
         .status(500)
-        .send(`Error fetching asset: ${fetchRes.status} ${fetchRes.statusText}`);
+        .send(`Error fetching resource: ${fetchRes.status} ${fetchRes.statusText}`);
     }
-    // Set response content type if available.
+    // Pass along the content type.
     const contentType = fetchRes.headers.get('content-type');
     if (contentType) {
       res.set('Content-Type', contentType);
     }
-    // Pipe asset content directly to the client.
+    // Stream the fetched resource to the client.
     fetchRes.body.pipe(res);
   } catch (error) {
     console.error(error);
-    res.status(500).send('Error fetching asset.');
+    res.status(500).send('Error fetching resource.');
   }
 });
 
