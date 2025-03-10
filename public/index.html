@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Flaming Bird Full-Page Proxy</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 40px;
+        text-align: center;
+      }
+      input[type="text"] {
+        width: 300px;
+        padding: 8px;
+        font-size: 16px;
+      }
+      button {
+        padding: 8px 16px;
+        font-size: 16px;
+        margin-left: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Flaming Bird Full-Page Proxy</h1>
+    <p>Enter a website URL (including protocol, e.g. https://example.com) and press "Go" to load it as a full page.</p>
+    <form id="proxyForm" method="GET" action="/fetch">
+      <input type="text" name="target" id="target" placeholder="https://example.com" required>
+      <button type="submit">Go</button>
+    </form>
+  </body>
+</html>
