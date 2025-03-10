@@ -1,30 +1,30 @@
 ````markdown
 # Flaming Bird Full-Page Proxy
 
-Flaming Bird is a Node.js reverse proxy that rewrites the target website's HTML so that all resource requests (CSS, JavaScript, images, videos, and other assets) are routed through the proxy. This allows you to load the complete website—including videos, images, and dynamic content—without missing parts.
+Flaming Bird is a Node.js reverse proxy that rewrites a target website's HTML so that all resource requests (CSS, JavaScript, images, videos, fonts, etc.) are routed through a generic endpoint. This helps bypass client-side blocking (such as ad blockers or extensions) that target specific asset URLs.
 
 ## How It Works
 
 1. **Proxy Homepage:**  
-   - The homepage (`public/index.html`) provides a form where you must enter a complete website URL (including the protocol, e.g., `https://example.com`).
+   The homepage (`public/index.html`) contains a form where you enter a complete website URL (with protocol, e.g. `https://example.com`).
 
 2. **HTML & Asset Rewriting:**  
-   - When you submit the form, your browser is directed to the `/fetch` endpoint.
-   - The server (`server.js`):
-     - Fetches the target website's HTML using a browser-like User-Agent.
-     - Uses Cheerio to remove restrictive meta tags and to update or insert a `<base>` tag for relative URLs.
-     - Rewrites all elements with external resource attributes (e.g. `src`, `srcset`, `href`) so that:
-       - Assets are served via the `/asset` endpoint.
-       - Navigation links for the same host are rewritten to go through `/fetch`.
-       
+   - When you submit the form, the browser is directed to the `/fetch?target=...` endpoint.
+   - The server (`server.js`) fetches the target HTML using a browser-like User-Agent header.
+   - Cheerio processes the HTML:
+     - Removes restrictive meta tags (`X-Frame-Options`, `Content-Security-Policy`).
+     - Inserts or updates a `<base>` tag so relative URLs resolve properly.
+     - Rewrites all resource URLs (in `src`, `srcset`, `href`, and `<source>` tags) to be routed through the generic asset endpoint `/res`.
+     - For navigation links (<a> tags) that point to the same domain, the URL is rewritten to go through `/fetch` again.
+   - A "Back to Proxy" link is injected for easy return to the proxy interface.
+
 3. **Asset Retrieval:**  
-   - The `/asset` endpoint retrieves assets (CSS, JavaScript, images, videos, etc.) using node-fetch and streams them with the appropriate content type.
+   - The `/res` endpoint fetches any requested asset (CSS, JavaScript, images, videos, fonts, etc.) using node-fetch.
+   - A custom Referer header is sent along to simulate a direct request.
+   - The asset is streamed back with the appropriate content type.
 
 4. **Full Page Display:**  
-   - The completely rewritten HTML is sent to your browser, ensuring that all parts of the website load properly, including videos, images, and styles.
-
-5. **Navigation:**  
-   - A "Back to Proxy" link is injected at the top of the page so you can easily return to the proxy homepage.
+   The rewritten HTML is sent to your browser, so the target website loads fully—with CSS, JavaScript, images, videos, and other assets—while hiding direct references to blocked domains.
 
 ## Setup and Running
 
@@ -32,7 +32,7 @@ Flaming Bird is a Node.js reverse proxy that rewrites the target website's HTML 
    Open this repository in your GitHub Codespace.
 
 2. **Install Dependencies**  
-   Open the terminal and run:
+   In the Codespaces terminal, run:
    ```bash
    npm install
    ```
@@ -45,11 +45,11 @@ Flaming Bird is a Node.js reverse proxy that rewrites the target website's HTML 
 
 4. **Use the Proxy**  
    Navigate to your Codespace URL. On the homepage, enter a complete website URL (including `http://` or `https://`) and click "Go".  
-   The target website should load fully via the proxy, including all media, CSS, JavaScript, images, and videos.
+   The target website should load completely, with all media, assets, and functionality working via the proxy.
 
 ## Limitations
 
-- Some highly dynamic or interactive websites may still present challenges.
-- Certain inline styles with background URLs or additional dynamic asset requests might require further rewriting.
-- This proxy works best for content-driven websites where most assets are referenced via HTML attributes.
+- Some highly dynamic or interactive websites may still have issues.
+- Additional inline scripts or assets loaded via JavaScript may not be rewritten.
+- Certain resources (such as fonts or videos) that are not available on the target server will return 404 errors.
 ````markdown
