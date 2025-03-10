@@ -1,7 +1,7 @@
 {
   "name": "flaming-bird-fullpage-proxy",
   "version": "1.0.0",
-  "description": "A Node.js reverse proxy that rewrites HTML and routes asset requests via a generic endpoint so that target websites load completely.",
+  "description": "A Node.js reverse proxy that rewrites HTML and routes resource requests through a generic endpoint to improve asset delivery.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
