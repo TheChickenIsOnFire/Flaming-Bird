@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
 // Helper: Validate that a URL starts with "http://" or "https://"
 const isValidUrl = (url) => /^https?:\/\//i.test(url);
 
-// Helper: Convert a relative URL to an absolute URL based on a base.
+// Helper: Convert a possibly relative URL to an absolute URL using the base.
 function makeAbsolute(url, base) {
   try {
     return new URL(url, base).toString();
@@ -23,8 +23,7 @@ function makeAbsolute(url, base) {
   }
 }
 
-// Rewrite an asset URL to our generic resource endpoint.
-// Note: The endpoint is /res so that the query string does not include "asset"
+// Rewrite a resource URL into our generic endpoint (/res).
 function rewriteAssetUrl(originalUrl, baseUrl) {
   const absoluteUrl = makeAbsolute(originalUrl, baseUrl);
   return '/res?url=' + encodeURIComponent(absoluteUrl);
@@ -43,7 +42,6 @@ app.get('/fetch', async (req, res) => {
   }
   
   try {
-    // Use a browser-like User-Agent so that target servers return full content.
     const response = await fetch(targetUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; FlamingBird/1.0)' }
     });
@@ -56,22 +54,22 @@ app.get('/fetch', async (req, res) => {
     }
     
     let html = await response.text();
-    // Load HTML into Cheerio (preserving original encoding with decodeEntities: false).
+    // Load HTML into Cheerio; preserve encoding by setting decodeEntities to false.
     const $ = cheerio.load(html, { decodeEntities: false });
     
-    // Remove meta tags that enforce framing/restrictions.
+    // Remove meta tags enforcing restrictions.
     $('meta[http-equiv="X-Frame-Options"]').remove();
     $('meta[http-equiv="Content-Security-Policy"]').remove();
     
-    // Insert or update a <base> element so that relative URLs resolve against the target.
+    // Insert or update a <base> tag so that relative URLs resolve correctly.
     if ($('base').length === 0) {
       $('head').prepend(`<base href="${targetUrl}">`);
     } else {
       $('base').attr('href', targetUrl);
     }
     
-    // Rewrite asset URLs for all elements that reference external resources:
-    // 1. Elements with a "src" attribute.
+    // Rewrite URLs for all elements referencing external assets.
+    // 1. Rewrite elements with a "src" attribute.
     $('[src]').each((i, el) => {
       const origUrl = $(el).attr('src');
       if (origUrl && origUrl.trim().length > 0) {
@@ -79,7 +77,7 @@ app.get('/fetch', async (req, res) => {
       }
     });
     
-    // 2. Elements with a "srcset" attribute (for responsive images or video sources)
+    // 2. Rewrite elements with a "srcset" attribute.
     $('[srcset]').each((i, el) => {
       const srcset = $(el).attr('srcset');
       if (srcset) {
@@ -96,30 +94,30 @@ app.get('/fetch', async (req, res) => {
       }
     });
     
-    // 3. Elements with an "href" attribute.
+    // 3. Rewrite elements with a "href" attribute.
     $('[href]').each((i, el) => {
       const tagName = $(el)[0].tagName.toLowerCase();
       const origUrl = $(el).attr('href');
-      if (!origUrl || origUrl.trim().length === 0) return;
+      if (!origUrl || !origUrl.trim()) return;
       const absolute = makeAbsolute(origUrl, targetUrl);
       if (tagName === 'a') {
         try {
           const absUrlObj = new URL(absolute);
           const targetUrlObj = new URL(targetUrl);
           if (absUrlObj.host === targetUrlObj.host) {
-            // For same-domain navigation links, route via /fetch.
+            // For same-domain links, route via our /fetch endpoint.
             $(el).attr('href', '/fetch?target=' + encodeURIComponent(absolute));
           }
         } catch (e) {
-          // Error in URL parsing; leave link unchanged.
+          // Leave the href unchanged if URL parsing fails.
         }
       } else {
-        // For non-anchor tags (e.g., <link> for CSS), rewrite to our resource endpoint.
+        // For other tags (like <link> tags), route through our generic /res endpoint.
         $(el).attr('href', rewriteAssetUrl(origUrl, targetUrl));
       }
     });
     
-    // 4. Handle <source> elements (e.g. within <video> or <picture>) so their URLs are rewritten.
+    // 4. Rewrite <source> elements (often used in <video>, <audio>, and <picture>).
     $('source').each((i, el) => {
       const origUrl = $(el).attr('src');
       if (origUrl && origUrl.trim().length > 0) {
@@ -140,7 +138,7 @@ app.get('/fetch', async (req, res) => {
       }
     });
     
-    // Inject a "Back to Proxy" link at the top for easy navigation back.
+    // Optionally, inject a "Back to Proxy" link at the top.
     $('body').prepend('<div style="padding:10px; background:#eee;"><a href="/" style="font-size:16px; text-decoration:none;">← Back to Proxy</a></div>');
     
     res.send($.html());
@@ -150,17 +148,17 @@ app.get('/fetch', async (req, res) => {
   }
 });
 
-// Endpoint to fetch assets (CSS, JS, images, videos, fonts, etc.) via our proxy.
-// Using "/res" instead of "/asset" to avoid triggering client-side filters.
+// Generic endpoint to fetch resources (CSS, JS, images, videos, fonts, etc.)
+// Using "/res" as the endpoint to try and avoid suspicion from client-side blockers.
 app.get('/res', async (req, res) => {
   const resourceUrl = req.query.url;
   if (!resourceUrl || !isValidUrl(resourceUrl)) {
     return res.status(400).send('Please provide a valid resource URL.');
   }
   try {
-    // Forward a Referer header matching the resource URL to simulate direct access.
+    // Forward a Referer header matching the requested resource.
     const fetchRes = await fetch(resourceUrl, {
-      headers: { 
+      headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; FlamingBird/1.0)',
         'Referer': resourceUrl
       }
@@ -171,12 +169,11 @@ app.get('/res', async (req, res) => {
         .status(500)
         .send(`Error fetching resource: ${fetchRes.status} ${fetchRes.statusText}`);
     }
-    // Pass along the content type.
     const contentType = fetchRes.headers.get('content-type');
     if (contentType) {
       res.set('Content-Type', contentType);
     }
-    // Stream the fetched resource to the client.
+    // Stream the resource back to the client.
     fetchRes.body.pipe(res);
   } catch (error) {
     console.error(error);
